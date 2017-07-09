@@ -2,6 +2,7 @@
 using System.Threading.Tasks;
 using Microsoft.Bot.Builder.Dialogs;
 using Microsoft.Bot.Connector;
+using System.Threading;
 
 namespace bot_luis_qna.Dialogs
 {
@@ -19,13 +20,105 @@ namespace bot_luis_qna.Dialogs
         {
             var activity = await result as Activity;
 
-            // calculate something for us to return
-            int length = (activity.Text ?? string.Empty).Length;
+            // Init converstion data for per user
+            int learn = 0;
+            if (!context.ConversationData.TryGetValue<int>("learn", out learn))
+            {
+                learn = 0;
+                context.ConversationData.SetValue<int>("learn", learn);
+            }
+            string question = "", answer = "";
+            if (!context.ConversationData.TryGetValue<string>("question", out question))
+            {
+                if (context.ConversationData.ContainsKey("question"))
+                {
+                    context.ConversationData.RemoveValue("question");
+                }
+                question = "?";
+                context.ConversationData.SetValue<string>("question", question);
+            }
+            if (!context.ConversationData.TryGetValue<string>("answer", out answer))
+            {
+                if (context.ConversationData.ContainsKey("answer"))
+                {
+                    context.ConversationData.RemoveValue("answer");
+                }
+                answer = "?";
+                context.ConversationData.SetValue<string>("answer", answer);
+            }
 
-            // return our reply to the user
-            await context.PostAsync($"You sent {activity.Text} which was {length} characters");
+            // States for Learning mode, you can teach your bot here.
+            if (activity.Text == "Learn" && learn == 0)
+            {
+                await context.PostAsync($"We are now at learning mode, input your question:");
+                learn = 1;
+                context.ConversationData.SetValue<int>("learn", learn);
+                context.Wait(MessageReceivedAsync);
+            }
+            else if (learn == 1)
+            {
+                context.ConversationData.SetValue<string>("question", activity.Text);
+                await context.PostAsync($"Please input your answer: ");
+                learn = 2;
+                context.ConversationData.SetValue<int>("learn", learn);
+                context.Wait(MessageReceivedAsync);
+            }
+            else if (learn == 2)
+            {
+                context.ConversationData.SetValue<string>("answer", activity.Text);
+                if (context.ConversationData.TryGetValue<string>("question", out question) &&
+                    context.ConversationData.TryGetValue<string>("answer", out answer))
+                {
+                    context.ConversationData.SetValue<string>("answer", activity.Text);
+                    PromptDialog.Confirm(context, AfterConfirm, string.Format("Your question: '{0}'，answer: '{1}'. Confirm？", question, answer));
+                }
+                else
+                {
+                    await context.PostAsync("Error occured");
+                    context.ConversationData.SetValue<int>("learn", 0);
+                    context.Wait(MessageReceivedAsync);
+                }
+                context.ConversationData.SetValue<int>("learn", 0);
+            }
+            else
+            {
+                context.ConversationData.SetValue<int>("learn", 0);
+                await context.Forward(new Dialogs.LuisDialog(), this.ResumeAfterLuisDialog, activity, CancellationToken.None);
+            }
 
+            // Wait for message anyway
             context.Wait(MessageReceivedAsync);
+        }
+
+        private async Task ResumeAfterLuisDialog(IDialogContext context, IAwaitable<object> result)
+        {
+            var ticketNumber = await result;
+            //Do nothing until user send another message
+            context.Wait(this.MessageReceivedAsync);
+        }
+
+        private async Task AfterConfirm(IDialogContext context, IAwaitable<bool> result)
+        {
+            var confirm = await result;
+            if (confirm)
+            {
+                string question = ".", answer = ".";
+                if (context.ConversationData.TryGetValue<string>("question", out question) &&
+                    context.ConversationData.TryGetValue<string>("answer", out answer))
+                {
+                    context.ConversationData.SetValue<int>("learn", 0);
+                    Dialogs.QnADialog qna = new Dialogs.QnADialog();
+                    await context.PostAsync("Learning...");
+                    qna.AddPairs(question, answer);
+                    qna.Publish();
+                    await context.PostAsync($"Done! Try asking'{question}'");
+                }
+            }
+            else
+            {
+                context.ConversationData.SetValue<int>("learn", 0);
+                await context.PostAsync("Cancelled");
+            }
         }
     }
 }

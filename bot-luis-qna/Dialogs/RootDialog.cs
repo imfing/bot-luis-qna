@@ -90,6 +90,12 @@ namespace bot_luis_qna.Dialogs
             context.Wait(MessageReceivedAsync);
         }
 
+        /// <summary>
+        /// You can handle things after LUIS give the answer
+        /// </summary>
+        /// <param name="context"></param>
+        /// <param name="result"></param>
+        /// <returns></returns>
         private async Task ResumeAfterLuisDialog(IDialogContext context, IAwaitable<object> result)
         {
             var ticketNumber = await result;
@@ -97,6 +103,12 @@ namespace bot_luis_qna.Dialogs
             context.Wait(this.MessageReceivedAsync);
         }
 
+        /// <summary>
+        /// Confirm and add pairs to QnA Maker and publish it
+        /// </summary>
+        /// <param name="context"></param>
+        /// <param name="result"></param>
+        /// <returns></returns>
         private async Task AfterConfirm(IDialogContext context, IAwaitable<bool> result)
         {
             var confirm = await result;
